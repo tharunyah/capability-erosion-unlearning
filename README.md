@@ -1,0 +1,14 @@
+Capability Erosion in Machine Unlearning
+
+Team:
+- Tharunyah
+- Sushanth
+
+Project Structure:
+- data/ : datasets and metadata
+- models/ : trained checkpoints
+- unlearn/ : unlearning methods
+- evaluate/ : CER and evaluation
+- audit/ : capability-aware monitoring
+- experiments/ : experiment scripts
+- results/ : figures and outputs
