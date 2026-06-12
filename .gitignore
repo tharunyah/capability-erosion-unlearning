@@ -1,2 +1,4 @@
 
 data/cifar100/
+
+models/*.pt
