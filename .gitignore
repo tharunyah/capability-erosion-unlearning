@@ -2,3 +2,11 @@
 data/cifar100/
 
 models/*.pt
+# datasets
+data/cifar100/
+data/cifar-100-python/
+data/cifar-100-python.tar.gz
+*.tar.gz
+
+# models
+models/*.pt
