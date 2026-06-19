@@ -10,3 +10,21 @@ data/cifar-100-python.tar.gz
 
 # models
 models/*.pt
+
+# Virtual environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs / experiment outputs
+logs/
+runs/
+checkpoints/
+
+# VS Code
+.vscode/
