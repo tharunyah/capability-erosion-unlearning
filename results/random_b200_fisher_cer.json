@@ -1,0 +1,30 @@
+{
+  "majority": {
+    "cer": -1.0001,
+    "baseline": 0.613,
+    "unlearned": 0.6125,
+    "oracle": 0.6135,
+    "delta": 0.0005
+  },
+  "mid_tail": {
+    "cer": 0.0093,
+    "baseline": 0.382,
+    "unlearned": 0.3817,
+    "oracle": 0.355,
+    "delta": 0.0002
+  },
+  "long_tail": {
+    "cer": 0.0714,
+    "baseline": 0.1378,
+    "unlearned": 0.1381,
+    "oracle": 0.1417,
+    "delta": -0.0003
+  },
+  "safety_critical": {
+    "cer": -0.0,
+    "baseline": 0.0325,
+    "unlearned": 0.0325,
+    "oracle": 0.045,
+    "delta": 0.0
+  }
+}
