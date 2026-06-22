@@ -34,8 +34,8 @@ def evaluate_per_class(
         )
     ])
     test_dataset = torchvision.datasets.CIFAR100(
-        root='./data/cifar100', train=False,
-        download=True, transform=transform
+        root='./data', train=False,
+        download=False, transform=transform
     )
     test_loader = DataLoader(test_dataset, batch_size=256,
                               shuffle=False, num_workers=2)

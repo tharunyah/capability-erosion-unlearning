@@ -1,0 +1,362 @@
+{
+  "influence_b50_fine_tune": {
+    "majority": {
+      "cer": -23.0018,
+      "baseline": 0.613,
+      "unlearned": 0.6015,
+      "oracle": 0.6135,
+      "delta": 0.0115
+    },
+    "mid_tail": {
+      "cer": 0.0185,
+      "baseline": 0.382,
+      "unlearned": 0.3815,
+      "oracle": 0.355,
+      "delta": 0.0005
+    },
+    "long_tail": {
+      "cer": 0.3571,
+      "baseline": 0.1378,
+      "unlearned": 0.1392,
+      "oracle": 0.1417,
+      "delta": -0.0014
+    },
+    "safety_critical": {
+      "cer": -0.0,
+      "baseline": 0.0325,
+      "unlearned": 0.0325,
+      "oracle": 0.045,
+      "delta": 0.0
+    }
+  },
+  "influence_b50_fisher": {
+    "majority": {
+      "cer": -19.0015,
+      "baseline": 0.613,
+      "unlearned": 0.6035,
+      "oracle": 0.6135,
+      "delta": 0.0095
+    },
+    "mid_tail": {
+      "cer": 0.3056,
+      "baseline": 0.382,
+      "unlearned": 0.3737,
+      "oracle": 0.355,
+      "delta": 0.0082
+    },
+    "long_tail": {
+      "cer": -2.0,
+      "baseline": 0.1378,
+      "unlearned": 0.13,
+      "oracle": 0.1417,
+      "delta": 0.0078
+    },
+    "safety_critical": {
+      "cer": -0.0,
+      "baseline": 0.0325,
+      "unlearned": 0.0325,
+      "oracle": 0.045,
+      "delta": 0.0
+    }
+  },
+  "random_b50_fine_tune": {
+    "majority": {
+      "cer": 3.0002,
+      "baseline": 0.613,
+      "unlearned": 0.6145,
+      "oracle": 0.6135,
+      "delta": -0.0015
+    },
+    "mid_tail": {
+      "cer": 0.2778,
+      "baseline": 0.382,
+      "unlearned": 0.3745,
+      "oracle": 0.355,
+      "delta": 0.0075
+    },
+    "long_tail": {
+      "cer": 0.1429,
+      "baseline": 0.1378,
+      "unlearned": 0.1383,
+      "oracle": 0.1417,
+      "delta": -0.0006
+    },
+    "safety_critical": {
+      "cer": -0.0,
+      "baseline": 0.0325,
+      "unlearned": 0.0325,
+      "oracle": 0.045,
+      "delta": 0.0
+    }
+  },
+  "random_b50_fisher": {
+    "majority": {
+      "cer": 1.0,
+      "baseline": 0.613,
+      "unlearned": 0.6135,
+      "oracle": 0.6135,
+      "delta": -0.0005
+    },
+    "mid_tail": {
+      "cer": 0.037,
+      "baseline": 0.382,
+      "unlearned": 0.381,
+      "oracle": 0.355,
+      "delta": 0.001
+    },
+    "long_tail": {
+      "cer": -0.4286,
+      "baseline": 0.1378,
+      "unlearned": 0.1361,
+      "oracle": 0.1417,
+      "delta": 0.0017
+    },
+    "safety_critical": {
+      "cer": -0.2,
+      "baseline": 0.0325,
+      "unlearned": 0.03,
+      "oracle": 0.045,
+      "delta": 0.0025
+    }
+  },
+  "influence_b100_fine_tune": {
+    "majority": {
+      "cer": -7.0006,
+      "baseline": 0.613,
+      "unlearned": 0.6095,
+      "oracle": 0.6135,
+      "delta": 0.0035
+    },
+    "mid_tail": {
+      "cer": 0.1296,
+      "baseline": 0.382,
+      "unlearned": 0.3785,
+      "oracle": 0.355,
+      "delta": 0.0035
+    },
+    "long_tail": {
+      "cer": -0.1429,
+      "baseline": 0.1378,
+      "unlearned": 0.1372,
+      "oracle": 0.1417,
+      "delta": 0.0006
+    },
+    "safety_critical": {
+      "cer": 0.4,
+      "baseline": 0.0325,
+      "unlearned": 0.0375,
+      "oracle": 0.045,
+      "delta": -0.005
+    }
+  },
+  "influence_b100_fisher": {
+    "majority": {
+      "cer": -9.0007,
+      "baseline": 0.613,
+      "unlearned": 0.6085,
+      "oracle": 0.6135,
+      "delta": 0.0045
+    },
+    "mid_tail": {
+      "cer": -0.0185,
+      "baseline": 0.382,
+      "unlearned": 0.3825,
+      "oracle": 0.355,
+      "delta": -0.0005
+    },
+    "long_tail": {
+      "cer": -0.7857,
+      "baseline": 0.1378,
+      "unlearned": 0.1347,
+      "oracle": 0.1417,
+      "delta": 0.0031
+    },
+    "safety_critical": {
+      "cer": -0.2,
+      "baseline": 0.0325,
+      "unlearned": 0.03,
+      "oracle": 0.045,
+      "delta": 0.0025
+    }
+  },
+  "random_b100_fine_tune": {
+    "majority": {
+      "cer": -14.0011,
+      "baseline": 0.613,
+      "unlearned": 0.606,
+      "oracle": 0.6135,
+      "delta": 0.007
+    },
+    "mid_tail": {
+      "cer": 0.0185,
+      "baseline": 0.382,
+      "unlearned": 0.3815,
+      "oracle": 0.355,
+      "delta": 0.0005
+    },
+    "long_tail": {
+      "cer": -0.2143,
+      "baseline": 0.1378,
+      "unlearned": 0.1369,
+      "oracle": 0.1417,
+      "delta": 0.0008
+    },
+    "safety_critical": {
+      "cer": 0.8,
+      "baseline": 0.0325,
+      "unlearned": 0.0425,
+      "oracle": 0.045,
+      "delta": -0.01
+    }
+  },
+  "random_b100_fisher": {
+    "majority": {
+      "cer": -1.0001,
+      "baseline": 0.613,
+      "unlearned": 0.6125,
+      "oracle": 0.6135,
+      "delta": 0.0005
+    },
+    "mid_tail": {
+      "cer": -0.0,
+      "baseline": 0.382,
+      "unlearned": 0.382,
+      "oracle": 0.355,
+      "delta": -0.0
+    },
+    "long_tail": {
+      "cer": 0.0714,
+      "baseline": 0.1378,
+      "unlearned": 0.1381,
+      "oracle": 0.1417,
+      "delta": -0.0003
+    },
+    "safety_critical": {
+      "cer": -0.0,
+      "baseline": 0.0325,
+      "unlearned": 0.0325,
+      "oracle": 0.045,
+      "delta": 0.0
+    }
+  },
+  "influence_b200_fine_tune": {
+    "majority": {
+      "cer": -7.0006,
+      "baseline": 0.613,
+      "unlearned": 0.6095,
+      "oracle": 0.6135,
+      "delta": 0.0035
+    },
+    "mid_tail": {
+      "cer": 0.1389,
+      "baseline": 0.382,
+      "unlearned": 0.3782,
+      "oracle": 0.355,
+      "delta": 0.0037
+    },
+    "long_tail": {
+      "cer": 0.4286,
+      "baseline": 0.1378,
+      "unlearned": 0.1394,
+      "oracle": 0.1417,
+      "delta": -0.0017
+    },
+    "safety_critical": {
+      "cer": 0.8,
+      "baseline": 0.0325,
+      "unlearned": 0.0425,
+      "oracle": 0.045,
+      "delta": -0.01
+    }
+  },
+  "influence_b200_fisher": {
+    "majority": {
+      "cer": -0.0001,
+      "baseline": 0.613,
+      "unlearned": 0.613,
+      "oracle": 0.6135,
+      "delta": 0.0
+    },
+    "mid_tail": {
+      "cer": 0.0648,
+      "baseline": 0.382,
+      "unlearned": 0.3802,
+      "oracle": 0.355,
+      "delta": 0.0017
+    },
+    "long_tail": {
+      "cer": -0.5714,
+      "baseline": 0.1378,
+      "unlearned": 0.1356,
+      "oracle": 0.1417,
+      "delta": 0.0022
+    },
+    "safety_critical": {
+      "cer": -0.2,
+      "baseline": 0.0325,
+      "unlearned": 0.03,
+      "oracle": 0.045,
+      "delta": 0.0025
+    }
+  },
+  "random_b200_fine_tune": {
+    "majority": {
+      "cer": -0.0001,
+      "baseline": 0.613,
+      "unlearned": 0.613,
+      "oracle": 0.6135,
+      "delta": 0.0
+    },
+    "mid_tail": {
+      "cer": 0.1667,
+      "baseline": 0.382,
+      "unlearned": 0.3775,
+      "oracle": 0.355,
+      "delta": 0.0045
+    },
+    "long_tail": {
+      "cer": -1.0714,
+      "baseline": 0.1378,
+      "unlearned": 0.1336,
+      "oracle": 0.1417,
+      "delta": 0.0042
+    },
+    "safety_critical": {
+      "cer": 0.4,
+      "baseline": 0.0325,
+      "unlearned": 0.0375,
+      "oracle": 0.045,
+      "delta": -0.005
+    }
+  },
+  "random_b200_fisher": {
+    "majority": {
+      "cer": -1.0001,
+      "baseline": 0.613,
+      "unlearned": 0.6125,
+      "oracle": 0.6135,
+      "delta": 0.0005
+    },
+    "mid_tail": {
+      "cer": 0.0093,
+      "baseline": 0.382,
+      "unlearned": 0.3817,
+      "oracle": 0.355,
+      "delta": 0.0002
+    },
+    "long_tail": {
+      "cer": 0.0714,
+      "baseline": 0.1378,
+      "unlearned": 0.1381,
+      "oracle": 0.1417,
+      "delta": -0.0003
+    },
+    "safety_critical": {
+      "cer": -0.0,
+      "baseline": 0.0325,
+      "unlearned": 0.0325,
+      "oracle": 0.045,
+      "delta": 0.0
+    }
+  }
+}
