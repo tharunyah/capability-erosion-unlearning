@@ -29,8 +29,8 @@ def load_model(path, num_classes=100):
 
 def per_class_accuracy(model, loader, num_classes=100, device='cpu'):
     model.eval()
-    correct = torch.zeros(num_classes)
-    total = torch.zeros(num_classes)
+    correct = torch.zeros(num_classes, device=device)
+    total = torch.zeros(num_classes, device=device)
     with torch.no_grad():
         for images, labels in loader:
             images, labels = images.to(device), labels.to(device)
@@ -39,7 +39,7 @@ def per_class_accuracy(model, loader, num_classes=100, device='cpu'):
                 mask = labels == c
                 correct[c] += (preds[mask] == labels[mask]).sum()
                 total[c] += mask.sum()
-    return (correct / total.clamp(min=1)).numpy()
+    return (correct / total.clamp(min=1)).cpu().numpy()
 
 
 def load_taxonomy_by_tier(path):
@@ -66,7 +66,7 @@ def main():
 
     unlearned_model = gradient_ascent_unlearn(
         model, forget_loader, retain_loader,
-        num_epochs=1, lr=1e-5, max_steps_per_epoch=50, grad_clip_norm=1.0,
+        num_epochs=1, lr=1e-4, max_steps_per_epoch=50, grad_clip_norm=5.0,
         device=device
     )
 
