@@ -14,6 +14,8 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
+    os.makedirs('models', exist_ok=True)  # ensure folder exists before any save
+
     train_transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -61,6 +63,18 @@ def main():
         if (epoch + 1) % 5 == 0 or epoch == 0:
             print(f"Epoch {epoch+1}/{num_epochs} | Loss: {total_loss/len(train_loader):.4f} | Train Acc: {correct/total:.4f}")
 
+        # Periodic checkpoint every 20 epochs, in case the final save ever fails again
+        if (epoch + 1) % 20 == 0:
+            os.makedirs('models', exist_ok=True)
+            torch.save({
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+            }, f'models/baseline_checkpoint_epoch{epoch+1}.pt')
+            print(f"Checkpoint saved at epoch {epoch+1}")
+
+    # Final save
+    os.makedirs('models', exist_ok=True)
     torch.save({
         'epoch': num_epochs,
         'model_state_dict': model.state_dict(),
