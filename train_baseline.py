@@ -9,6 +9,11 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from torchvision.models import resnet18
 
+# Set this depending on environment:
+# - Colab (with Drive mounted): '/content/drive/MyDrive/cifar100_cache'
+# - Local laptop: 'data/'
+DATA_ROOT = '/content/drive/MyDrive/cifar100_cache'
+
 
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -23,7 +28,7 @@ def main():
         transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
     ])
 
-    full_trainset = datasets.CIFAR100(root='data/', train=True, download=True, transform=train_transform)
+    full_trainset = datasets.CIFAR100(root=DATA_ROOT, train=True, download=True, transform=train_transform)
 
     lt_indices = np.load('data/lt_train_indices.npy')
     train_subset = Subset(full_trainset, lt_indices.tolist())
