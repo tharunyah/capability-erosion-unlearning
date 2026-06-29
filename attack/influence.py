@@ -62,7 +62,6 @@ def compute_gradients_eval(model, loss_fn, inputs, labels, device):
     model.zero_grad()
     inputs, labels = inputs.to(device), labels.to(device)
 
-    # Enable grad computation even in eval mode
     with torch.enable_grad():
         outputs = model(inputs)
         loss    = loss_fn(outputs, labels)
@@ -248,3 +247,38 @@ def compute_influence_scores(
             print(f"  Scored {i+1}/{len(lt_train_indices)}")
 
     return scores
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == '__main__':
+    import sys
+    import os
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+    from evaluate.per_class_eval import load_model
+
+    device  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Device: {device}")
+
+    model   = load_model('models/baseline.pt', device)
+    loss_fn = nn.CrossEntropyLoss()
+
+    lt_train_indices = np.load('data/lt_train_indices.npy')
+    print(f"Loaded {len(lt_train_indices)} long-tail training indices")
+
+    scores = compute_influence_scores(
+        model            = model,
+        loss_fn          = loss_fn,
+        lt_train_indices = lt_train_indices,
+        device           = device,
+        lissa_steps      = 200,
+        damping          = 0.01,
+        scale            = 500.0,
+        batch_size       = 32,
+        verbose          = True
+    )
+
+    np.save('data/influence_scores.npy', scores)
+    print(f"\nDone. Scores shape: {scores.shape}")
+    print(f"Score range: [{scores.min():.4f}, {scores.max():.4f}]")
