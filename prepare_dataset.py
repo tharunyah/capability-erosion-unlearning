@@ -59,6 +59,13 @@ print("\nCapability Taxonomy (loaded, unchanged):")
 for tier in ("majority", "mid_tail", "long_tail", "safety_critical"):
     print(f"  {tier:<18s}: {tier_freq[tier]:>3} classes")
 
+# Sanity check — catch silent taxonomy mismatches before training wastes GPU time
+expected_total = len(majority_classes) + len(mid_tail_classes) + len(long_tail_classes) + len(safety_critical_classes)
+assert expected_total == num_classes, (
+    f"Taxonomy covers {expected_total} classes, expected {num_classes}. "
+    "Check data/capability_taxonomy.json for missing/duplicate class IDs."
+)
+
 # -------------------------------------------------------
 # Pareto-distributed sample quotas
 #
@@ -91,7 +98,11 @@ for cls, q in zip(safety_critical_classes, safety_critical_quotas): class_quota[
 # -------------------------------------------------------
 selected_indices: list[int] = []
 for cls in range(num_classes):
-    sampled = random.sample(class_to_indices[cls], class_quota[cls])
+    quota = class_quota[cls]
+    available = len(class_to_indices[cls])
+    if quota > available:
+        raise ValueError(f"Class {cls} quota {quota} exceeds available samples {available}")
+    sampled = random.sample(class_to_indices[cls], quota)
     selected_indices.extend(sampled)
 
 selected_indices_arr = np.array(selected_indices)
@@ -127,11 +138,17 @@ sorted_by_quota = sorted(range(num_classes), key=lambda c: class_quota[c], rever
 sorted_counts = [class_quota[c] for c in sorted_by_quota]
 sorted_colors = [TIER_COLOR[capability_taxonomy[str(c)]] for c in sorted_by_quota]
 
+# Dynamic legend — reflects the ACTUAL taxonomy on disk,
+# never hardcoded class counts that could silently go stale
 legend_patches = [
-    mpatches.Patch(color=TIER_COLOR["majority"], label="Majority (20 cls, 400-500)"),
-    mpatches.Patch(color=TIER_COLOR["mid_tail"], label="Mid-tail (40 cls, 100-400)"),
-    mpatches.Patch(color=TIER_COLOR["long_tail"], label="Long-tail (30 cls, 50-120)"),
-    mpatches.Patch(color=TIER_COLOR["safety_critical"], label="Safety-critical (10 cls, 30-70)"),
+    mpatches.Patch(color=TIER_COLOR["majority"],
+                   label=f"Majority ({len(majority_classes)} cls, 400-500)"),
+    mpatches.Patch(color=TIER_COLOR["mid_tail"],
+                   label=f"Mid-tail ({len(mid_tail_classes)} cls, 100-400)"),
+    mpatches.Patch(color=TIER_COLOR["long_tail"],
+                   label=f"Long-tail ({len(long_tail_classes)} cls, 50-120)"),
+    mpatches.Patch(color=TIER_COLOR["safety_critical"],
+                   label=f"Safety-critical ({len(safety_critical_classes)} cls, 30-70)"),
 ]
 
 fig, ax = plt.subplots(figsize=(10, 5))
