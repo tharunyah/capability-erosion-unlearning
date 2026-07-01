@@ -1,6 +1,7 @@
 # unlearn/fisher_forgetting.py
 import sys
 import os
+import copy
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
@@ -13,8 +14,8 @@ from evaluate.per_class_eval import load_model
 
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
-ALPHA          = 1e-2   # noise scale — NEEDS SWEEPING, no principled default
-NOISE_STD_CLIP = 0.1    # max per-parameter noise std, prevents blowup on near-zero Fisher
+ALPHA          = 1e-3  # noise scale — NEEDS SWEEPING, no principled default
+NOISE_STD_CLIP = 0.01    # max per-parameter noise std, prevents blowup on near-zero Fisher
 EPS            = 1e-8   # numerical stability in 1/sqrt(fisher)
 
 
@@ -65,17 +66,28 @@ def compute_fisher_diagonal(model, loss_fn, retain_indices, device):
     return fisher
 
 
-def apply_fisher_noise(model, fisher, alpha=ALPHA, std_clip=NOISE_STD_CLIP, eps=EPS):
+def apply_fisher_noise(model, fisher, alpha=ALPHA, std_clip=NOISE_STD_CLIP, eps=EPS,
+                        generator=None):
     """
     Injects Gaussian noise into each parameter, scaled inversely to its
     Fisher information: low-Fisher (unimportant to retain) params get
     perturbed more, high-Fisher (important to retain) params stay stable.
+
+    Pass `generator` (a torch.Generator seeded on the model's device) to get
+    a reproducible, independent noise draw — used by fisher_forget_multi_draw
+    to run several draws on top of one shared Fisher computation. Leave it
+    None for the original single-draw behavior (draws from the global RNG).
     """
     with torch.no_grad():
         for p, f in zip(model.parameters(), fisher):
             std = alpha / torch.sqrt(f + eps)
             std = torch.clamp(std, max=std_clip)
-            p.add_(torch.randn_like(p) * std)
+            if generator is not None:
+                noise = torch.randn(p.shape, generator=generator,
+                                     device=p.device, dtype=p.dtype)
+            else:
+                noise = torch.randn_like(p)
+            p.add_(noise * std)
     return model
 
 
@@ -93,6 +105,62 @@ def fisher_forget(baseline_path, lt_train_indices, forget_indices, device, loss_
     model = apply_fisher_noise(model, fisher)
 
     return model
+
+
+def fisher_forget_multi_draw(
+    baseline_path,
+    lt_train_indices,
+    forget_indices,
+    device,
+    loss_fn,
+    n_draws=5,
+    alpha=ALPHA,
+    std_clip=NOISE_STD_CLIP,
+    seed_base=0,
+):
+    """
+    Same as fisher_forget, but draws n_draws independent noise realizations
+    on top of a single shared Fisher computation, returning per-class
+    accuracy for every draw (shape: (n_draws, 100)) so the caller can
+    average and inspect run-to-run variance.
+
+    Fisher is the expensive step (one backward pass per retain sample) —
+    computing it once and reusing it across draws is what makes averaging
+    affordable on a 4GB 3050. Does not mutate baseline_path or any .npy on
+    disk; only ever writes to fresh deepcopy'd models in memory.
+    """
+    from evaluate.per_class_eval import evaluate_per_class  # local import to avoid cycles
+
+    base_model = load_model(baseline_path, device)
+
+    retain_indices = np.setdiff1d(lt_train_indices, forget_indices)
+    print(f"  Retain set: {len(retain_indices)} samples "
+          f"(baseline's {len(lt_train_indices)} minus {len(forget_indices)} forgotten)")
+
+    print(f"  Computing Fisher over all {len(retain_indices)} retain samples "
+          f"(once, shared across {n_draws} draws)...")
+    fisher = compute_fisher_diagonal(base_model, loss_fn, retain_indices, device)
+
+    per_class_accs = []
+    for draw_idx in range(n_draws):
+        seed = seed_base + draw_idx
+        generator = torch.Generator(device=device)
+        generator.manual_seed(seed)
+
+        model_copy = copy.deepcopy(base_model)
+        print(f"  Draw {draw_idx + 1}/{n_draws} (seed={seed}): "
+              f"applying noise (alpha={alpha}, std_clip={std_clip})...")
+        apply_fisher_noise(model_copy, fisher, alpha=alpha, std_clip=std_clip,
+                            generator=generator)
+
+        per_class_acc = evaluate_per_class(model_copy, device, save_path=None)
+        per_class_accs.append(per_class_acc)
+
+        del model_copy
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
+
+    return np.stack(per_class_accs, axis=0)  # shape (n_draws, 100)
 
 
 if __name__ == '__main__':
