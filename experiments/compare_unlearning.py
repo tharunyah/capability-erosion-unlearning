@@ -14,7 +14,7 @@ from data.dataloader_utils import get_forget_retain_loaders, get_cifar100_trains
 from evaluate.per_class_eval import evaluate_per_class
 from evaluate.cer import compute_cer, print_cer_report
 from unlearn.fine_tune import fine_tune_unlearn
-from unlearn.fisher_forgetting import fisher_forgetting_unlearn
+from unlearn.fisher_forgetting import fisher_forget
 
 
 def load_model(checkpoint_path, device):
@@ -32,6 +32,8 @@ def run_experiment(
     oracle_acc,
     device,
     label,
+    lt_train_indices,
+    loss_fn,
     results_dir = 'results'
 ):
     """
@@ -39,16 +41,17 @@ def run_experiment(
 
     Parameters
     ----------
-    forget_indices : np.ndarray of global training indices to forget
-    method         : 'fine_tune' or 'fisher'
-    label          : experiment label for saving results
+    forget_indices    : np.ndarray of global training indices to forget
+    method            : 'fine_tune' or 'fisher'
+    label             : experiment label for saving results
+    lt_train_indices  : full long-tail-distributed training index set
+                         (baseline's actual training data; used by fisher
+                         to derive its retain set)
+    loss_fn           : loss function fisher's per-sample Fisher pass needs
     """
     os.makedirs(results_dir, exist_ok=True)
 
-    # ── Load fresh baseline model ────────────────────────────────────────────
-    model = load_model('models/baseline.pt', device)
-
-    # ── Build forget/retain loaders ──────────────────────────────────────────
+    # ── Build forget/retain loaders (used by fine_tune) ──────────────────────
     trainset = get_cifar100_trainset()
     forget_loader, retain_loader = get_forget_retain_loaders(
         forget_indices, batch_size=128, num_workers=0, trainset=trainset
@@ -57,15 +60,19 @@ def run_experiment(
     # ── Apply unlearning ─────────────────────────────────────────────────────
     print(f"\n[{label}] Applying {method} unlearning...")
     if method == 'fine_tune':
+        model = load_model('models/baseline.pt', device)
         unlearned_model = fine_tune_unlearn(
             model, forget_loader, retain_loader, device,
             ascent_steps=5, descent_steps=20,
             ascent_lr=1e-4, descent_lr=1e-4
         )
     elif method == 'fisher':
-        unlearned_model = fisher_forgetting_unlearn(
-            model, forget_loader, device,
-            noise_scale=1e-1, num_batches=10
+        unlearned_model = fisher_forget(
+            baseline_path     = 'models/baseline.pt',
+            lt_train_indices  = lt_train_indices,
+            forget_indices    = forget_indices,
+            device            = device,
+            loss_fn           = loss_fn
         )
     else:
         raise ValueError(f"Unknown method: {method}")
@@ -93,8 +100,10 @@ if __name__ == '__main__':
     print(f"Device: {device}")
 
     # ── Load reference accuracies ────────────────────────────────────────────
-    baseline_acc = np.load('data/baseline_per_class_acc.npy')
-    oracle_acc   = np.load('data/oracle_per_class_acc.npy')
+    baseline_acc     = np.load('data/baseline_per_class_acc.npy')
+    oracle_acc       = np.load('data/oracle_per_class_acc.npy')
+    lt_train_indices = np.load('data/lt_train_indices.npy')
+    loss_fn          = nn.CrossEntropyLoss()
 
     # ── Experiment grid ──────────────────────────────────────────────────────
     budgets    = [50, 100, 200]
@@ -117,12 +126,14 @@ if __name__ == '__main__':
                 print(f"  Method          : {method}")
 
                 cer_results = run_experiment(
-                    forget_indices = forget_indices,
-                    method         = method,
-                    baseline_acc   = baseline_acc,
-                    oracle_acc     = oracle_acc,
-                    device         = device,
-                    label          = label
+                    forget_indices    = forget_indices,
+                    method            = method,
+                    baseline_acc      = baseline_acc,
+                    oracle_acc        = oracle_acc,
+                    device            = device,
+                    label             = label,
+                    lt_train_indices  = lt_train_indices,
+                    loss_fn           = loss_fn
                 )
 
                 all_results[label] = cer_results
