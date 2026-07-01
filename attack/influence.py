@@ -1,4 +1,5 @@
-# attack/influence.py
+#attack/influence.py
+
 import json
 import numpy as np
 import torch
@@ -46,6 +47,24 @@ def get_longtail_test_indices(taxonomy_path='data/capability_taxonomy.json'):
     testset = load_testset()
     indices = [i for i, (_, label) in enumerate(testset) if label in target_classes]
     return indices
+
+
+def filter_pure_longtail(indices, taxonomy_path='data/capability_taxonomy.json', tiers=('long_tail',)):
+    """
+    Keeps only indices whose class tier is in `tiers`.
+    Default is strict long_tail only — excludes majority, mid_tail, and safety_critical.
+    `indices` must be indices into the CIFAR-100 TRAIN set (matches lt_train_indices.npy).
+    """
+    with open(taxonomy_path) as f:
+        taxonomy = json.load(f)
+
+    keep_classes = set(int(c) for c, t in taxonomy.items() if t in tiers)
+
+    trainset = load_trainset()
+    targets  = trainset.targets  # list[int], aligned to dataset index
+
+    mask = np.array([targets[idx] in keep_classes for idx in indices])
+    return indices[mask]
 
 
 # ── Gradient utilities ───────────────────────────────────────────────────────
@@ -265,12 +284,16 @@ if __name__ == '__main__':
     loss_fn = nn.CrossEntropyLoss()
 
     lt_train_indices = np.load('data/lt_train_indices.npy')
-    print(f"Loaded {len(lt_train_indices)} long-tail training indices")
+    print(f"Loaded {len(lt_train_indices)} long-tail-distributed training indices (all tiers mixed)")
+
+    lt_pure_indices = filter_pure_longtail(lt_train_indices, tiers=('long_tail',))
+    np.save('data/lt_pure_indices.npy', lt_pure_indices)
+    print(f"Filtered to {len(lt_pure_indices)} pure long_tail-tier indices (majority/mid_tail/safety_critical excluded)")
 
     scores = compute_influence_scores(
         model            = model,
         loss_fn          = loss_fn,
-        lt_train_indices = lt_train_indices,
+        lt_train_indices = lt_pure_indices,
         device           = device,
         lissa_steps      = 200,
         damping          = 0.01,

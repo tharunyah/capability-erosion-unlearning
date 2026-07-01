@@ -1,3 +1,5 @@
+#attack/forget_set.py
+
 import numpy as np
 
 
@@ -23,10 +25,10 @@ def build_random_forget_set(
 
 
 if __name__ == "__main__":
-    lt_train_indices = np.load("data/lt_train_indices.npy")
+    lt_train_indices = np.load("data/lt_pure_indices.npy")
     influence_scores = np.load("data/influence_scores.npy")
 
-    print(f"Loaded {len(lt_train_indices)} long-tail indices, {len(influence_scores)} influence scores")
+    print(f"Loaded {len(lt_train_indices)} pure long_tail indices, {len(influence_scores)} influence scores")
 
     for budget in [50, 100, 200]:
         inf_set = build_influence_forget_set(lt_train_indices, influence_scores, budget)
