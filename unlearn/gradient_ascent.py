@@ -9,13 +9,28 @@ def gradient_ascent_unlearn(
     forget_loader,
     retain_loader,
     num_epochs=1,
-    lr=1e-5,
-    ascent_weight=1.0,
-    retain_weight=1.0,
-    max_steps_per_epoch=50,
-    grad_clip_norm=1.0,
+    lr=1e-4,
+    ascent_weight=5.0,
+    retain_weight=0.3,
+    max_steps_per_epoch=15,
+    grad_clip_norm=5.0,
     device=None
 ):
+    """
+    Gradient ascent unlearning (Day 6 of 18-day plan).
+
+    Ascends on forget-set loss (makes the model worse at those samples)
+    while descending on a small retain sample to prevent catastrophic
+    forgetting of the rest of the dataset.
+
+    Key tuning vs. naive defaults:
+      - ascent_weight=5.0  : pushes forgetting signal hard relative to retain
+      - retain_weight=0.3  : de-emphasizes retain so it doesn't act as a
+                             free fine-tune pass that swamps the forget signal
+      - max_steps_per_epoch=15 : limits incidental retain-side training;
+                                  50k-sample retain pool at batch 128 would
+                                  otherwise dominate a 50-200 sample forget set
+    """
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -56,16 +71,16 @@ def gradient_ascent_unlearn(
             combined_loss = (-ascent_weight * forget_loss) + (retain_weight * retain_loss)
             combined_loss.backward()
 
-            # Prevent the loss from exploding
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
-
             optimizer.step()
 
             total_forget_loss += forget_loss.item()
             total_retain_loss += retain_loss.item()
             num_batches += 1
 
-        print(f"Epoch {epoch+1}/{num_epochs} | Forget loss: {total_forget_loss/num_batches:.4f} | Retain loss: {total_retain_loss/num_batches:.4f}")
+        print(f"Epoch {epoch+1}/{num_epochs} | "
+              f"Forget loss: {total_forget_loss/num_batches:.4f} | "
+              f"Retain loss: {total_retain_loss/num_batches:.4f}")
 
     model.eval()
     return model
