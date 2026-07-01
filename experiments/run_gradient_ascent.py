@@ -1,9 +1,24 @@
 # experiments/run_gradient_ascent.py
+#
+# Day 6 of the 18-day plan:
+#   - Runs gradient ascent unlearning across all 6 forget sets
+#     (forget_influence_50/100/200 and forget_random_50/100/200)
+#   - Each run starts from a fresh copy of baseline.pt
+#   - Resume-safe: skips forget sets whose checkpoints already exist
+#   - Append-only CSV so partial progress survives a Colab disconnect
+#
+# Sanity check (run this on just forget_influence_100 first):
+#   python experiments/run_gradient_ascent.py --sanity
+#
+# Full run (all 6):
+#   python experiments/run_gradient_ascent.py
+
 import sys
 import os
 import re
 import glob
 import csv
+import argparse
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -18,8 +33,12 @@ from data.dataloader_utils import get_forget_retain_loaders
 from unlearn.gradient_ascent import gradient_ascent_unlearn
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def load_model(path, num_classes=100):
-    model = resnet18()
+    model = resnet18(weights=None)
     model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
     checkpoint = torch.load(path, map_location='cpu')
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
@@ -53,7 +72,11 @@ def load_taxonomy_by_tier(path):
     return tier_to_classes
 
 
-def discover_forget_sets(data_dir='data'):
+def discover_forget_sets(data_dir='data', single=False):
+    """
+    Finds forget_influence_*.npy and forget_random_*.npy.
+    If single=True, returns only forget_influence_100 for the sanity check.
+    """
     pattern = os.path.join(data_dir, 'forget_*.npy')
     files = sorted(glob.glob(pattern))
 
@@ -67,21 +90,36 @@ def discover_forget_sets(data_dir='data'):
             print(f"  Skipping unrecognized file: {fname}")
             continue
         strategy, budget = m.group(1), int(m.group(2))
-        forget_sets.append({'path': f, 'strategy': strategy, 'budget': budget, 'name': fname})
+        forget_sets.append({
+            'path': f,
+            'strategy': strategy,
+            'budget': budget,
+            'name': fname
+        })
+
+    if single:
+        # Sanity check: just run forget_influence_100
+        forget_sets = [fs for fs in forget_sets
+                       if fs['strategy'] == 'influence' and fs['budget'] == 100]
+        if not forget_sets:
+            raise FileNotFoundError("forget_influence_100.npy not found in data/")
 
     return forget_sets
 
 
 def already_done(fs, model_dir='models'):
-    """Resume-safety: skip a forget set if its checkpoint already exists."""
-    ckpt_name = os.path.join(model_dir, f"gradient_ascent_{fs['strategy']}_{fs['budget']}.pt")
-    return os.path.exists(ckpt_name)
+    """Skip a forget set if its checkpoint already exists (resume safety)."""
+    ckpt = os.path.join(model_dir, f"gradient_ascent_{fs['strategy']}_{fs['budget']}.pt")
+    return os.path.exists(ckpt)
 
 
 def append_results_csv(rows, csv_path='results/gradient_ascent_results.csv'):
-    """Append-safe CSV writing so partial progress is never lost on disconnect."""
-    fieldnames = ['forget_set', 'strategy', 'budget', 'tier', 'baseline_acc',
-                  'unlearned_acc', 'diff', 'overall_baseline', 'overall_unlearned', 'overall_diff']
+    """Append after each forget set so a disconnect never loses prior results."""
+    fieldnames = [
+        'forget_set', 'strategy', 'budget', 'tier',
+        'baseline_acc', 'unlearned_acc', 'diff',
+        'overall_baseline', 'overall_unlearned', 'overall_diff'
+    ]
     file_exists = os.path.exists(csv_path)
     with open(csv_path, 'a', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -90,24 +128,29 @@ def append_results_csv(rows, csv_path='results/gradient_ascent_results.csv'):
         writer.writerows(rows)
 
 
-def main():
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
     os.makedirs('models', exist_ok=True)
     os.makedirs('results', exist_ok=True)
 
-    forget_sets = discover_forget_sets('data')
-    print(f"Found {len(forget_sets)} forget sets total:")
+    forget_sets = discover_forget_sets('data', single=args.sanity)
+
+    print(f"\n{'SANITY CHECK MODE — only forget_influence_100' if args.sanity else 'FULL RUN — all 6 forget sets'}")
+    print(f"Found {len(forget_sets)} forget set(s):")
     for fs in forget_sets:
         status = "DONE (skipping)" if already_done(fs) else "pending"
-        print(f"  - {fs['name']} (strategy={fs['strategy']}, budget={fs['budget']}) [{status}]")
+        print(f"  - {fs['name']} [{status}]")
 
     pending = [fs for fs in forget_sets if not already_done(fs)]
     if not pending:
-        print("\nAll 6 forget sets already have checkpoints. Nothing to do.")
+        print("\nAll forget sets already have checkpoints — nothing to do.")
         return
-    print(f"\n{len(pending)} forget set(s) remaining this run.\n")
 
     tier_to_classes = load_taxonomy_by_tier('data/capability_taxonomy.json')
 
@@ -115,23 +158,28 @@ def main():
         transforms.ToTensor(),
         transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
     ])
-    test_set = datasets.CIFAR100(root='data/', train=False, download=True, transform=transform)
+    test_set = datasets.CIFAR100(
+        root=os.environ.get('DATA_ROOT', 'data'),
+        train=False, download=True, transform=transform
+    )
     test_loader = DataLoader(test_set, batch_size=256, shuffle=False, num_workers=0)
 
+    # Baseline accuracy computed once — doesn't change across runs
     baseline_model = load_model('models/baseline.pt').to(device)
     baseline_acc = per_class_accuracy(baseline_model, test_loader, device=device)
     baseline_overall = baseline_acc.mean()
-    print(f"Baseline overall accuracy: {baseline_overall:.4f}\n")
+    print(f"\nBaseline overall accuracy: {baseline_overall:.4f}")
 
     for fs in pending:
-        print(f"{'='*60}")
-        print(f"Running gradient ascent on {fs['name']}")
+        print(f"\n{'='*60}")
+        print(f"Running gradient ascent: {fs['name']}")
+        print(f"  strategy={fs['strategy']}  budget={fs['budget']}")
         print(f"{'='*60}")
 
         forget_indices = np.load(fs['path'])
         print(f"Loaded {len(forget_indices)} forget indices")
 
-        # Fresh baseline reload every time - never compound unlearning
+        # Fresh baseline load every iteration — never compound unlearning
         model = load_model('models/baseline.pt')
 
         forget_loader, retain_loader = get_forget_retain_loaders(
@@ -139,18 +187,25 @@ def main():
         )
 
         unlearned_model = gradient_ascent_unlearn(
-            model, forget_loader, retain_loader,
-            num_epochs=1, lr=1e-4, max_steps_per_epoch=50, grad_clip_norm=5.0,
+            model,
+            forget_loader,
+            retain_loader,
+            num_epochs=1,
+            lr=1e-4,
+            ascent_weight=5.0,
+            retain_weight=0.3,
+            max_steps_per_epoch=15,
+            grad_clip_norm=5.0,
             device=device
         )
 
-        ckpt_name = f"models/gradient_ascent_{fs['strategy']}_{fs['budget']}.pt"
+        ckpt_path = f"models/gradient_ascent_{fs['strategy']}_{fs['budget']}.pt"
         torch.save({
             'epoch': 1,
             'forget_set': fs['name'],
             'model_state_dict': unlearned_model.state_dict(),
-        }, ckpt_name)
-        print(f"Saved {ckpt_name}")
+        }, ckpt_path)
+        print(f"Saved {ckpt_path}")
 
         unlearned_model = unlearned_model.to(device)
         unlearned_acc = per_class_accuracy(unlearned_model, test_loader, device=device)
@@ -158,6 +213,7 @@ def main():
 
         print(f"\n{'Tier':20s} | {'Baseline':>9s} | {'Unlearned':>9s} | {'Diff':>7s}")
         print("-" * 58)
+
         rows = []
         for tier, classes in tier_to_classes.items():
             idx = np.array(classes, dtype=np.int64)
@@ -171,23 +227,54 @@ def main():
                 'strategy': fs['strategy'],
                 'budget': fs['budget'],
                 'tier': tier,
-                'baseline_acc': b,
-                'unlearned_acc': u,
-                'diff': diff,
-                'overall_baseline': baseline_overall,
-                'overall_unlearned': unlearned_overall,
-                'overall_diff': unlearned_overall - baseline_overall,
+                'baseline_acc': round(float(b), 6),
+                'unlearned_acc': round(float(u), 6),
+                'diff': round(float(diff), 6),
+                'overall_baseline': round(float(baseline_overall), 6),
+                'overall_unlearned': round(float(unlearned_overall), 6),
+                'overall_diff': round(float(unlearned_overall - baseline_overall), 6),
             })
 
-        # Write immediately after each forget set finishes - so a disconnect
-        # after forget set #3 doesn't lose results for #1 and #2
-        append_results_csv(rows)
-        print(f"\nOverall Baseline:  {baseline_overall:.3f}")
-        print(f"Overall Unlearned: {unlearned_overall:.3f}")
-        print(f"Appended results to results/gradient_ascent_results.csv\n")
+        print(f"\nOverall Baseline:  {baseline_overall:.4f}")
+        print(f"Overall Unlearned: {unlearned_overall:.4f}")
+        print(f"Overall Diff:      {unlearned_overall - baseline_overall:+.4f}")
 
-    print("All pending forget sets processed.")
+        # ---- Sanity check guidance ----
+        long_tail_diff = next(r['diff'] for r in rows if r['tier'] == 'long_tail')
+        overall_diff = unlearned_overall - baseline_overall
+
+        print("\n--- Sanity Check ---")
+        if long_tail_diff < 0:
+            print(f"✓ long_tail accuracy dropped ({long_tail_diff:+.3f}) — forgetting is working")
+        else:
+            print(f"✗ long_tail accuracy went UP ({long_tail_diff:+.3f}) — ascent signal too weak, "
+                  f"try raising ascent_weight or lowering retain_weight further")
+
+        if abs(overall_diff) < 0.05:
+            print(f"✓ Overall accuracy stable ({overall_diff:+.4f}) — stealthy erosion achieved")
+        elif overall_diff < -0.05:
+            print(f"⚠ Overall accuracy dropped too much ({overall_diff:+.4f}) — "
+                  f"reduce ascent_weight or raise retain_weight slightly")
+        else:
+            print(f"⚠ Overall accuracy increased ({overall_diff:+.4f}) — "
+                  f"retain is still dominating, lower retain_weight further")
+
+        # Write immediately after each forget set — disconnect-safe
+        append_results_csv(rows)
+        print(f"Appended to results/gradient_ascent_results.csv\n")
+
+    print("Done.")
+    if args.sanity:
+        print("\nSanity check complete.")
+        print("If long_tail diff is negative and overall diff is < 0.05,")
+        print("run the full loop with: python experiments/run_gradient_ascent.py")
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--sanity', action='store_true',
+        help='Run only forget_influence_100 as a quick sanity check before the full loop'
+    )
+    args = parser.parse_args()
+    main(args)
