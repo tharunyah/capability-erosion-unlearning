@@ -1,13 +1,17 @@
 import numpy as np
-from data.dataloader_utils import get_forget_retain_loaders
+import json
 
-if __name__ == '__main__':
-    dummy_forget = np.random.choice(50000, size=100, replace=False)
-    forget_loader, retain_loader = get_forget_retain_loaders(dummy_forget)
+with open('data/capability_taxonomy.json') as f:
+    class_to_tier = json.load(f)
 
-    f_imgs, f_labels = next(iter(forget_loader))
-    r_imgs, r_labels = next(iter(retain_loader))
+# you need the train labels to map forget indices -> class ids
+from torchvision import datasets
+train_set = datasets.CIFAR100(root='data/', train=True, download=True)
 
-    print(f"Forget batch shape: {f_imgs.shape}")
-    print(f"Retain batch shape: {r_imgs.shape}")
-    print("DataLoader utility works correctly")
+for fname in ['forget_influence_50.npy', 'forget_influence_100.npy', 'forget_influence_200.npy',
+              'forget_random_50.npy', 'forget_random_100.npy', 'forget_random_200.npy']:
+    idx = np.load(f'data/{fname}')
+    classes_hit = [train_set.targets[i] for i in idx]
+    tiers_hit = [class_to_tier[str(c)] for c in classes_hit]
+    from collections import Counter
+    print(fname, Counter(tiers_hit))
