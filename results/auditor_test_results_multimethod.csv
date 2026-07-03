@@ -1,0 +1,13 @@
+run_id,method,true_label,tier,di_after,di_shift,flagged,reason
+finetune::forget_random_50.npy,finetune,benign,long_tail,0.4372881281815572,-0.016268349583187902,True,outlier
+finetune::forget_random_100.npy,finetune,benign,long_tail,0.443800424301618,-0.009756053463127135,False,ok
+finetune::forget_random_200.npy,finetune,benign,long_tail,0.4483310394090472,-0.005225438355697887,False,ok
+finetune::forget_influence_50.npy,finetune,attack,long_tail,0.4386739006787639,-0.01488257708598123,False,ok
+finetune::forget_influence_100.npy,finetune,attack,long_tail,0.4381211943297349,-0.015435283435010216,False,ok
+finetune::forget_influence_200.npy,finetune,attack,long_tail,0.4372029796808727,-0.01635349808387243,False,ok
+gradient_ascent::forget_random_100.npy,gradient_ascent,benign,long_tail,0.31027313009392393,-0.14328334767082118,True,outlier
+gradient_ascent::forget_random_200.npy,gradient_ascent,benign,long_tail,0.33677624205204404,-0.11678023571270107,False,ok
+gradient_ascent::forget_random_50.npy,gradient_ascent,benign,long_tail,0.3497545315513477,-0.10380194621339739,False,ok
+gradient_ascent::forget_influence_100.npy,gradient_ascent,attack,long_tail,0.3078245862798867,-0.14573189148485843,True,outlier
+gradient_ascent::forget_influence_200.npy,gradient_ascent,attack,long_tail,0.2564543036300382,-0.19710217413470693,True,outlier
+gradient_ascent::forget_influence_50.npy,gradient_ascent,attack,long_tail,0.27536173434153505,-0.17819474342321007,True,outlier
