@@ -1,4 +1,26 @@
 # unlearn/fine_tune.py
+#
+# NOTE — this file contains TWO distinct fine-tuning-based unlearning methods:
+#
+# 1. fine_tune_forget / fine_tune_forget_multi_draw — retain-set-only gradient
+#    DESCENT, no active forgetting step. This was originally built and labeled
+#    as "the" fine_tune method, and already has a full analysis trail against
+#    it (single-run CSV, 5-draw multi-draw CSV, corrected-std CSV, and the
+#    auditor test in test_auditor_multimethod.py). It does NOT match the
+#    interface compare_unlearning.py expects. Kept as a separate baseline
+#    method going forward — think of it as "retain_only_finetune" in spirit,
+#    even though the function names are unchanged to avoid breaking existing
+#    imports (average_finetune_draws.py, etc.).
+#
+# 2. fine_tune_unlearn — the CANONICAL fine_tune method, matching
+#    compare_unlearning.py's expected signature exactly: gradient ASCENT on
+#    the forget set (active forgetting) followed by gradient DESCENT on the
+#    retain set (utility recovery). This is what "fine_tune" means everywhere
+#    else in the project (compare_unlearning.py, and the ascent_steps/
+#    descent_steps hyperparameter notes this file's tunables were drawn from).
+#    Any NEW fine_tune results (e.g. the 12-matrix run) should come from this
+#    function, not fine_tune_forget.
+
 import sys
 import os
 import copy
@@ -148,6 +170,86 @@ def fine_tune_forget_multi_draw(
             torch.cuda.empty_cache()
 
     return np.stack(per_class_accs, axis=0)  # shape (n_draws, 100)
+
+
+# ── Canonical fine_tune method (matches compare_unlearning.py) ──────────────
+
+# Defaults mirror compare_unlearning.py's call site exactly
+# (ascent_steps=5, descent_steps=20, ascent_lr=1e-4, descent_lr=1e-4).
+ASCENT_STEPS  = 5
+DESCENT_STEPS_CANONICAL = 20
+ASCENT_LR     = 1e-4
+DESCENT_LR_CANONICAL    = 1e-4
+
+
+def fine_tune_unlearn(model, forget_loader, retain_loader, device,
+                       ascent_steps=ASCENT_STEPS, descent_steps=DESCENT_STEPS_CANONICAL,
+                       ascent_lr=ASCENT_LR, descent_lr=DESCENT_LR_CANONICAL, loss_fn=None):
+    """
+    Canonical fine_tune unlearning: two phases, mutating `model` in place.
+
+    Phase 1 — gradient ASCENT on the forget set: for `ascent_steps` steps,
+    take gradient steps that INCREASE loss on forget-set batches (implemented
+    by negating the loss before backward and using a normal descent
+    optimizer). This actively degrades the model's ability to correctly
+    classify the forget set — the actual "unlearning" step, unlike
+    fine_tune_forget which has no analogous mechanism.
+
+    Phase 2 — gradient DESCENT on the retain set: for `descent_steps` steps,
+    ordinary training on retain-set batches, to recover general-utility
+    performance the ascent phase likely damaged as a side effect (ascent
+    updates aren't class-selective, so they can degrade retained classes too).
+
+    Takes a live model + two DataLoaders (not baseline_path + indices) to
+    match compare_unlearning.py's call site exactly. `loss_fn` is not passed
+    by that call site, so it defaults to CrossEntropyLoss if left as None.
+
+    Note: ascent_steps=5 / descent_steps=20 are compare_unlearning.py's
+    current defaults — like fine_tune_forget's tunables, these are starting
+    points, not swept/validated values.
+    """
+    if loss_fn is None:
+        loss_fn = nn.CrossEntropyLoss()
+
+    model.train()
+
+    # ── Phase 1: gradient ascent on forget set ──────────────────────────────
+    forget_iter = _infinite_loader(forget_loader)
+    ascent_optimizer = optim.Adam(model.parameters(), lr=ascent_lr)
+
+    print(f"  Phase 1 (ascent): {ascent_steps} steps on forget set, lr={ascent_lr}...")
+    for step in range(ascent_steps):
+        inputs, labels = next(forget_iter)
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        ascent_optimizer.zero_grad()
+        out  = model(inputs)
+        loss = loss_fn(out, labels)
+        (-loss).backward()  # negate loss -> optimizer step increases it (ascent)
+        ascent_optimizer.step()
+
+        print(f"    Ascent step {step + 1}/{ascent_steps}, loss={loss.item():.4f}")
+
+    # ── Phase 2: gradient descent on retain set ─────────────────────────────
+    retain_iter = _infinite_loader(retain_loader)
+    descent_optimizer = optim.Adam(model.parameters(), lr=descent_lr)
+
+    print(f"  Phase 2 (descent): {descent_steps} steps on retain set, lr={descent_lr}...")
+    for step in range(descent_steps):
+        inputs, labels = next(retain_iter)
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        descent_optimizer.zero_grad()
+        out  = model(inputs)
+        loss = loss_fn(out, labels)
+        loss.backward()
+        descent_optimizer.step()
+
+        if (step + 1) % 10 == 0:
+            print(f"    Descent step {step + 1}/{descent_steps}, loss={loss.item():.4f}")
+
+    model.eval()
+    return model
 
 
 if __name__ == '__main__':
