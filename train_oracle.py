@@ -1,4 +1,3 @@
-
 # train_oracle.py
 #
 # Day 4-5 of the 18-day plan (applied to real forget sets).
@@ -9,18 +8,18 @@
 # for each unlearning method (gradient ascent, Fisher, fine-tuning).
 #
 # Oracle strategy (per friend's analysis):
-#   - Influence forget sets: 50 ⊂ 100 ⊂ 200 (same ranked LiSSA list, top-k).
-#     One oracle trained on lt_indices - influence_200 covers all three budgets.
+#   - Influence forget sets: 50 ⊂ 100 ⊂ 200 ⊂ 300 ⊂ 400 (same ranked LiSSA list, top-k).
+#     One oracle trained on lt_indices - influence_400 covers all five budgets.
 #   - Random forget sets: independently sampled, no subset relationship.
-#     One oracle per budget (random_50, random_100, random_200).
-#   Total: 4 oracles instead of 6.
+#     One oracle per budget (random_50, random_100, random_200, random_300, random_400).
+#   Total: 6 oracles instead of 9 (thanks to the influence nesting).
 #
 # Usage:
 #   Single (sanity check first):
 #     python train_oracle.py --single influence
 #     python train_oracle.py --single random_100
 #
-#   Full run (all 4 oracles):
+#   Full run (all 6 oracles):
 #     python train_oracle.py
 #
 # On Colab: set DATA_ROOT env var to your Drive cache path before running.
@@ -56,10 +55,11 @@ def get_oracle_configs(data_dir='data'):
     return [
         {
             'key':         'influence',
-            'forget_path': os.path.join(data_dir, 'forget_influence_200.npy'),
+            'forget_path': os.path.join(data_dir, 'forget_influence_400.npy'),
             'label':       'oracle_influence',
-            'covers':      ['forget_influence_50', 'forget_influence_100', 'forget_influence_200'],
-            'note':        'forget_influence_50 and _100 are subsets of _200 (ranked LiSSA list)',
+            'covers':      ['forget_influence_50', 'forget_influence_100', 'forget_influence_200',
+                            'forget_influence_300', 'forget_influence_400'],
+            'note':        'forget_influence_50/100/200/300 are all subsets of _400 (ranked LiSSA list)',
         },
         {
             'key':         'random_50',
@@ -80,6 +80,20 @@ def get_oracle_configs(data_dir='data'):
             'forget_path': os.path.join(data_dir, 'forget_random_200.npy'),
             'label':       'oracle_random_200',
             'covers':      ['forget_random_200'],
+            'note':        'independently sampled — needs own oracle',
+        },
+        {
+            'key':         'random_300',
+            'forget_path': os.path.join(data_dir, 'forget_random_300.npy'),
+            'label':       'oracle_random_300',
+            'covers':      ['forget_random_300'],
+            'note':        'independently sampled — needs own oracle',
+        },
+        {
+            'key':         'random_400',
+            'forget_path': os.path.join(data_dir, 'forget_random_400.npy'),
+            'label':       'oracle_random_400',
+            'covers':      ['forget_random_400'],
             'note':        'independently sampled — needs own oracle',
         },
     ]
@@ -318,8 +332,7 @@ if __name__ == '__main__':
     parser.add_argument('--taxonomy',    type=str,   default='data/capability_taxonomy.json')
     parser.add_argument(
         '--single', type=str, default=None,
-        help='Train one oracle only. Options: influence, random_50, random_100, random_200'
+        help='Train one oracle only. Options: influence, random_50, random_100, random_200, random_300, random_400'
     )
     args = parser.parse_args()
     main(args)
-
