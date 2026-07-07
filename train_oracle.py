@@ -96,6 +96,34 @@ def get_oracle_configs(data_dir='data'):
             'covers':      ['forget_random_400'],
             'note':        'independently sampled — needs own oracle',
         },
+        {
+            'key':         'random_100_seed43',
+            'forget_path': os.path.join(data_dir, 'forget_random_100_seed43.npy'),
+            'label':       'oracle_random_100_seed43',
+            'covers':      ['forget_random_100_seed43'],
+            'note':        'extra random draw at budget=100 for auditor benign-condition stats',
+        },
+        {
+            'key':         'random_100_seed44',
+            'forget_path': os.path.join(data_dir, 'forget_random_100_seed44.npy'),
+            'label':       'oracle_random_100_seed44',
+            'covers':      ['forget_random_100_seed44'],
+            'note':        'extra random draw at budget=100 for auditor benign-condition stats',
+        },
+        {
+            'key':         'random_100_seed45',
+            'forget_path': os.path.join(data_dir, 'forget_random_100_seed45.npy'),
+            'label':       'oracle_random_100_seed45',
+            'covers':      ['forget_random_100_seed45'],
+            'note':        'extra random draw at budget=100 for auditor benign-condition stats',
+        },
+        {
+            'key':         'random_100_seed46',
+            'forget_path': os.path.join(data_dir, 'forget_random_100_seed46.npy'),
+            'label':       'oracle_random_100_seed46',
+            'covers':      ['forget_random_100_seed46'],
+            'note':        'extra random draw at budget=100 for auditor benign-condition stats',
+        },
     ]
 
 
@@ -332,7 +360,9 @@ if __name__ == '__main__':
     parser.add_argument('--taxonomy',    type=str,   default='data/capability_taxonomy.json')
     parser.add_argument(
         '--single', type=str, default=None,
-        help='Train one oracle only. Options: influence, random_50, random_100, random_200, random_300, random_400'
+        help='Train one oracle only. Options: influence, random_50, random_100, random_200, '
+             'random_300, random_400, random_100_seed43, random_100_seed44, '
+             'random_100_seed45, random_100_seed46'
     )
     args = parser.parse_args()
     main(args)

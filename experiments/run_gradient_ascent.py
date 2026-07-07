@@ -74,7 +74,8 @@ def load_taxonomy_by_tier(path):
 
 def discover_forget_sets(data_dir='data', single=False):
     """
-    Finds forget_influence_*.npy and forget_random_*.npy.
+    Finds forget_influence_*.npy and forget_random_*.npy, including
+    seeded random repeats like forget_random_100_seed43.npy.
     If single=True, returns only forget_influence_100 for the sanity check.
     """
     pattern = os.path.join(data_dir, 'forget_*.npy')
@@ -85,22 +86,24 @@ def discover_forget_sets(data_dir='data', single=False):
         fname = os.path.basename(f)
         if 'placeholder' in fname:
             continue
-        m = re.match(r'forget_(influence|random)_(\d+)\.npy', fname)
+        m = re.match(r'forget_(influence|random)_(\d+)(?:_seed(\d+))?\.npy', fname)
         if not m:
             print(f"  Skipping unrecognized file: {fname}")
             continue
-        strategy, budget = m.group(1), int(m.group(2))
-        forget_sets.append({
+        strategy, budget, seed = m.group(1), int(m.group(2)), m.group(3)
+        entry = {
             'path': f,
             'strategy': strategy,
             'budget': budget,
+            'seed': int(seed) if seed is not None else None,
             'name': fname
-        })
+        }
+        forget_sets.append(entry)
 
     if single:
         # Sanity check: just run forget_influence_100
         forget_sets = [fs for fs in forget_sets
-                       if fs['strategy'] == 'influence' and fs['budget'] == 100]
+                       if fs['strategy'] == 'influence' and fs['budget'] == 100 and fs['seed'] is None]
         if not forget_sets:
             raise FileNotFoundError("forget_influence_100.npy not found in data/")
 
@@ -109,7 +112,8 @@ def discover_forget_sets(data_dir='data', single=False):
 
 def already_done(fs, model_dir='models'):
     """Skip a forget set if its checkpoint already exists (resume safety)."""
-    ckpt = os.path.join(model_dir, f"gradient_ascent_{fs['strategy']}_{fs['budget']}.pt")
+    ckpt = os.path.join(model_dir, f"gradient_ascent_{fs['strategy']}_{fs['budget']}"
+                                    f"{'_seed' + str(fs['seed']) if fs['seed'] is not None else ''}.pt")
     return os.path.exists(ckpt)
 
 
@@ -199,7 +203,11 @@ def main(args):
             device=device
         )
 
-        ckpt_path = f"models/gradient_ascent_{fs['strategy']}_{fs['budget']}.pt"
+        ckpt_path = os.path.join(
+            'models',
+            f"gradient_ascent_{fs['strategy']}_{fs['budget']}"
+            f"{'_seed' + str(fs['seed']) if fs['seed'] is not None else ''}.pt"
+        )
         torch.save({
             'epoch': 1,
             'forget_set': fs['name'],
