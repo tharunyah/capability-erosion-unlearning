@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -10,7 +11,10 @@ def get_cifar100_trainset():
         transforms.ToTensor(),
         transforms.Normalize((0.5071,0.4867,0.4408),(0.2675,0.2565,0.2761))
     ])
-    return datasets.CIFAR100(root='data/', train=True, download=True, transform=transform)
+    return datasets.CIFAR100(
+        root=os.environ.get('DATA_ROOT', 'data'),
+        train=True, download=True, transform=transform
+    )
 
 def get_forget_retain_loaders(
     forget_indices,          # np.ndarray or list of ints
