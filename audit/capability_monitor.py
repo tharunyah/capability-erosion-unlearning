@@ -18,8 +18,33 @@ Two checks, both borrowed from existing, established sources -- nothing invented
 
 check() returns: {tier, di_after, di_shift, flagged, reason}
   reason is one of: "threshold" (di_after < 0.8), "outlier" (z-score test), "ok"
+
+--- HISTORY OF FIXES (per friend's review) ---
+
+1. FIXED: history contamination. check() previously updated history on every
+   call, including for runs being evaluated (e.g. attack runs). This meant
+   checking attack #1 leaked into the baseline used to judge attack #2,
+   drifting the "normal" mean toward attack-like values as you go through
+   a loop.
+   -> check() no longer updates history at all. History is ONLY ever
+      updated via seed_benign_history() / add_benign_observation(), i.e.
+      only from runs you explicitly know are benign ground truth. This
+      makes the calibration set stable regardless of what/how many runs
+      you evaluate afterward.
+
+2. FIXED (silent failure): min_history_for_zscore defaulted to 5, but with
+   only 3 benign samples per method (forget_random_{50,100,200}), Check B
+   never ran, silently, forever -- no warning. check() now WARNS the first
+   time it skips Check B due to insufficient history.
+
+   NOTE (project-specific): budget=100 now has 5 benign draws available
+   (forget_random_100 seed42 + seed43/44/45/46 from generate_random_repeats.py),
+   so min_history_for_zscore=5 is back to being achievable there -- use 5
+   when calibrating on budget=100, and the lower default only if working
+   with budgets that still have just 3 draws.
 """
 
+import warnings
 import numpy as np
 
 
@@ -32,17 +57,24 @@ class CapabilityMonitor:
                             counts as a statistical outlier.
         min_history_for_zscore: need at least this many past (benign) di_shift
                             values for a tier before z-score is trustworthy.
+                            Default is 5 -- matches the 5 benign draws now
+                            available at budget=100 (seed42 + seed43-46).
+                            Drop to 3 only if calibrating on a budget that
+                            still has just the original 3 random draws.
         """
         self.di_threshold = di_threshold
         self.zscore_threshold = zscore_threshold
         self.min_history_for_zscore = min_history_for_zscore
-        self.history = {}  # {tier_name: [di_shift, di_shift, ...]}
+        self.history = {}  # {tier_name: [di_shift, di_shift, ...]}  -- BENIGN ONLY
+        self._warned_insufficient_history = set()  # tiers already warned about
 
     def check(self, di_after, di_shift, tier):
         """
         Runs both checks on a single unlearning run's DI result for one tier.
-        Updates rolling history AFTER checking, so the current value doesn't
-        skew its own z-score.
+        Does NOT update history -- history is calibration data and must be
+        added explicitly via seed_benign_history() / add_benign_observation(),
+        so evaluating attack (or any non-ground-truth-benign) runs can never
+        contaminate the baseline.
         """
         result = {
             "tier": tier,
@@ -56,7 +88,6 @@ class CapabilityMonitor:
         if di_after < self.di_threshold:
             result["flagged"] = True
             result["reason"] = "threshold"
-            self._update_history(di_shift, tier)
             return result
 
         # Check B: z-score outlier vs. history of benign (random) shifts
@@ -69,8 +100,18 @@ class CapabilityMonitor:
                 if z <= -self.zscore_threshold:  # erosion = very negative shift
                     result["flagged"] = True
                     result["reason"] = "outlier"
+        else:
+            if tier not in self._warned_insufficient_history:
+                warnings.warn(
+                    f"[CapabilityMonitor] tier='{tier}': only {len(past_shifts)} benign "
+                    f"history sample(s), need {self.min_history_for_zscore} -- "
+                    f"Check B (z-score outlier) is being SKIPPED for this tier. "
+                    f"Threshold check (Check A) is the only active detector until "
+                    f"more benign samples are seeded.",
+                    stacklevel=2,
+                )
+                self._warned_insufficient_history.add(tier)
 
-        self._update_history(di_shift, tier)
         return result
 
     def _update_history(self, di_shift, tier):
@@ -78,17 +119,26 @@ class CapabilityMonitor:
 
     def seed_benign_history(self, di_shift_list, tier):
         """
-        Day 12 step: feed a batch of di_shift values from KNOWN-benign
-        (random) forget sets to build the detector's sense of "normal"
-        before checking any real/attack runs.
+        Feed a batch of di_shift values from KNOWN-benign (random) forget
+        sets to build the detector's sense of "normal" before checking any
+        real/attack runs. This is the ONLY way history gets populated.
         """
         for v in di_shift_list:
             self._update_history(v, tier)
+
+    def add_benign_observation(self, di_shift, tier):
+        """
+        Add a single known-benign di_shift to history. Use this to
+        incrementally grow calibration data (e.g. after evaluating an
+        additional random-seed benign draw) without re-seeding the whole batch.
+        """
+        self._update_history(di_shift, tier)
 
     def check_batch(self, di_results, method="unknown", forget_set_id="unknown"):
         """
         Takes the dict from DisparateImpactAudit.compute() -- {tier: {...}} --
         and runs check() on every tier. Returns a list of annotated results.
+        Does NOT touch history -- see check().
         """
         outputs = []
         for tier, vals in di_results.items():
@@ -113,3 +163,9 @@ if __name__ == "__main__":
 
     print("\n-- checking an attack-magnitude run (big DI drop) --")
     print(monitor.check(di_after=0.65, di_shift=-0.30, tier="long_tail"))
+
+    print("\n-- checking several attack runs in a row: history must NOT drift --")
+    print("history before:", monitor.history["long_tail"])
+    monitor.check(di_after=0.90, di_shift=-0.05, tier="long_tail")
+    monitor.check(di_after=0.88, di_shift=-0.06, tier="long_tail")
+    print("history after (should be UNCHANGED vs. before):", monitor.history["long_tail"])
