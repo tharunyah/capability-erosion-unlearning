@@ -89,6 +89,17 @@
   },
   {
     "method":"fine_tune",
+    "config":"fine_tune_forget_influence_100",
+    "budget":100,
+    "strategy":"influence",
+    "source":"supplement",
+    "majority_di_shift":0.0,
+    "mid_tail_di_shift":-0.0018,
+    "long_tail_di_shift":-0.0154,
+    "safety_critical_di_shift":-0.0008
+  },
+  {
+    "method":"fine_tune",
     "config":"fine_tune_forget_influence_200",
     "budget":200,
     "strategy":"influence",
@@ -218,6 +229,17 @@
     "mid_tail_di_shift":-0.0183,
     "long_tail_di_shift":-0.0178,
     "safety_critical_di_shift":0.0022
+  },
+  {
+    "method":"fisher",
+    "config":"fisher_forget_influence_100",
+    "budget":100,
+    "strategy":"influence",
+    "source":"supplement",
+    "majority_di_shift":0.0,
+    "mid_tail_di_shift":-0.0263,
+    "long_tail_di_shift":-0.0274,
+    "safety_critical_di_shift":0.0084
   },
   {
     "method":"fisher",

@@ -3,13 +3,22 @@ experiments/compute_di_all_methods.py
 
 Compares DI shift across all three unlearning methods: fine_tune_forget,
 fisher, gradient_ascent -- combining extended/corrected CSVs (best data,
-preferred) with older multidraw CSVs (used only to fill budget gaps:
-50 and 200, not already covered by the extended CSVs).
+preferred) with older multidraw CSVs (used only to fill (budget, strategy)
+gaps not already covered by the extended CSVs).
 
 No oracle comparison (confirmed unnecessary by team decision).
 
 Read-only script. Writes only results/full_summary_di_all_methods.json.
 Does not touch any existing CSV, .pt, or .json files.
+
+FIX (this version): dedup between extended and supplement CSVs now keys on
+(budget, strategy) instead of budget alone. Previously, extended's budget=100
+coverage was random-strategy-only (from reseeds), but the old code marked
+budget=100 as fully "covered" and silently dropped the supplement's
+budget=100 influence rows for both fine_tune and fisher. Confirmed via
+experiments/check_csv_coverage.py that both supplement CSVs actually contain
+the full budget x strategy grid (50/100/200 x influence/random, 4 rows each)
+that was being partially thrown away.
 """
 
 import os
@@ -22,7 +31,7 @@ REFERENCE_TIER = "majority"
 FINE_TUNE_EXTENDED_CSV = "results/finetune_results_multidraw_extended_steps50_corrected.csv"
 FISHER_EXTENDED_CSV = "results/fisher_results_multidraw_extended_alpha0.001_corrected.csv"
 
-# Supplementary sources -- used ONLY to fill budgets not present in the extended CSVs
+# Supplementary sources -- used ONLY to fill (budget, strategy) combos not present in the extended CSVs
 FINE_TUNE_SUPPLEMENT_CSV = "results/finetune_results_multidraw_steps50_corrected.csv"
 FISHER_SUPPLEMENT_CSV = "results/fisher_results_multidraw_alpha0.001.csv"  # needs diff_over_std computed
 
@@ -94,17 +103,17 @@ def rows_from_df(df, method_label, source_tag):
 
 def load_method(extended_path, supplement_path, method_label):
     """Loads extended CSV (preferred), then adds supplement rows only for
-    budgets NOT already present in the extended data."""
+    (budget, strategy) combos NOT already present in the extended data."""
     all_rows = []
-    covered_budgets = set()
+    covered_keys = set()
 
     if os.path.exists(extended_path):
         df = pd.read_csv(extended_path)
         rows = rows_from_df(df, method_label, "extended_corrected")
         all_rows += rows
-        covered_budgets = {r["budget"] for r in rows}
+        covered_keys = {(r["budget"], r["strategy"]) for r in rows}
         print("[loaded] " + method_label + " (extended): " + str(len(rows))
-              + " configs, budgets=" + str(sorted(covered_budgets)))
+              + " configs, budgets=" + str(sorted({r["budget"] for r in rows})))
     else:
         print("[skip] " + method_label + " extended CSV not found: " + extended_path)
 
@@ -112,7 +121,7 @@ def load_method(extended_path, supplement_path, method_label):
         df = pd.read_csv(supplement_path)
         df = ensure_diff_over_std(df)
         supplement_rows = rows_from_df(df, method_label, "supplement")
-        new_rows = [r for r in supplement_rows if r["budget"] not in covered_budgets]
+        new_rows = [r for r in supplement_rows if (r["budget"], r["strategy"]) not in covered_keys]
         skipped = len(supplement_rows) - len(new_rows)
         all_rows += new_rows
         print("[loaded] " + method_label + " (supplement): " + str(len(new_rows))

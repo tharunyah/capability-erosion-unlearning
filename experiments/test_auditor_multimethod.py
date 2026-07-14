@@ -15,11 +15,16 @@ run per method so the auditor's behavior on each is visible, including
 majority, which acts as an internal sanity check (majority vs. itself as
 reference tier is trivially ~1.0 DI and should never flag).
 
-Handles three different CSV schemas automatically:
+UPDATE: each method (finetune, fisher) now loads BOTH its "extended" CSV
+(budgets 100 w/ reseeds, 300, 400) AND its "supplement" CSV (budgets 50, 100, 200),
+merged with dedup keyed on (budget, strategy) -- extended wins on overlap.
+Previously this script only read one CSV per method, which silently dropped
+most of fisher's influence-attack runs (2 out of 5) and finetune's 300/400 data.
+gradient_ascent has one CSV with full budget range already, so it's unchanged.
+
+Handles multiple CSV schemas automatically:
   - gradient_ascent_results.csv: has an "unlearned_acc" column
-  - finetune_results_multidraw_steps50_corrected.csv: has "unlearned_acc_mean"
-  - fisher_results_multidraw_extended_alpha0.001_corrected.csv: also has
-    "unlearned_acc_mean" (already averaged over draws per forget set)
+  - finetune/fisher supplement + extended CSVs: have "unlearned_acc_mean"
 """
 
 import sys, os
@@ -29,10 +34,21 @@ import csv
 from collections import defaultdict
 from audit.capability_monitor import CapabilityMonitor
 
+# Each method now maps to a LIST of files: (path, source_label).
+# Order matters for the dedup pass below -- put "extended" first so it
+# always wins when both files cover the same (budget, strategy).
 RESULT_FILES = {
-    "gradient_ascent": "results/gradient_ascent_results.csv",
-    "finetune": "results/finetune_results_multidraw_steps50_corrected.csv",
-    "fisher": "results/fisher_results_multidraw_extended_alpha0.001_corrected.csv",
+    "gradient_ascent": [
+        ("results/gradient_ascent_results.csv", "raw_single_run"),
+    ],
+    "finetune": [
+        ("results/finetune_results_multidraw_extended_steps50_corrected.csv", "extended_corrected"),
+        ("results/finetune_results_multidraw_steps50_corrected.csv", "supplement"),
+    ],
+    "fisher": [
+        ("results/fisher_results_multidraw_extended_alpha0.001_corrected.csv", "extended_corrected"),
+        ("results/fisher_results_multidraw_alpha0.001.csv", "supplement"),
+    ],
 }
 
 TARGET_TIERS = ["majority", "mid_tail", "long_tail", "safety_critical"]
@@ -41,7 +57,7 @@ OUTPUT_CSV = "results/auditor_test_results_multimethod.csv"
 
 
 def get_unlearned_acc(row):
-    """Handles all three column naming schemes across your CSVs."""
+    """Handles all column naming schemes across your CSVs."""
     if "unlearned_acc" in row:
         return float(row["unlearned_acc"])
     if "unlearned_acc_mean" in row:
@@ -49,19 +65,65 @@ def get_unlearned_acc(row):
     raise KeyError("No unlearned_acc / unlearned_acc_mean column found")
 
 
-def load_results(path, method):
-    """One row per forget_set+tier in all three files -- no draw/seed collision to worry about."""
+def load_one_csv(path, method):
+    """Reads a single CSV. Returns by_run (run_id -> tier -> acc dict), meta (run_id -> info),
+    and covered_keys (set of (budget, strategy) pairs seen in this file, for dedup)."""
     by_run = defaultdict(dict)
     meta = {}
+    covered_keys = set()
     with open(path) as f:
         for row in csv.DictReader(f):
-            run_id = f"{method}::{row['forget_set']}"
+            run_id = method + "::" + row["forget_set"]
+            budget_val = row.get("budget", "")
+            strategy_val = row["strategy"]
             by_run[run_id][row["tier"]] = {
                 "baseline_acc": float(row["baseline_acc"]),
                 "unlearned_acc": get_unlearned_acc(row),
             }
-            meta[run_id] = {"method": method, "strategy": row["strategy"], "budget": row.get("budget", "")}
-    return by_run, meta
+            meta[run_id] = {"method": method, "strategy": strategy_val, "budget": budget_val}
+            covered_keys.add((budget_val, strategy_val))
+    return by_run, meta, covered_keys
+
+
+def load_results_for_method(method, file_list):
+    """Merges multiple CSVs for one method. Files earlier in file_list win on
+    (budget, strategy) overlap -- so put 'extended' before 'supplement'."""
+    merged_by_run = defaultdict(dict)
+    merged_meta = {}
+    covered_keys = set()
+    per_file_counts = []
+
+    for path, source_label in file_list:
+        if not os.path.exists(path):
+            print("[skip] " + path + " not found yet")
+            continue
+
+        by_run, meta, file_keys = load_one_csv(path, method)
+
+        new_keys = file_keys - covered_keys
+        skipped_keys = file_keys & covered_keys
+
+        added_runs = 0
+        for run_id, tier_data in by_run.items():
+            run_key = (meta[run_id]["budget"], meta[run_id]["strategy"])
+            if run_key in new_keys or run_id not in merged_by_run:
+                merged_by_run[run_id] = tier_data
+                merged_meta[run_id] = meta[run_id]
+                merged_meta[run_id]["source"] = source_label
+                added_runs += 1
+
+        per_file_counts.append(
+            "  " + path + " (" + source_label + "): " + str(added_runs) + " runs added, "
+            + str(len(skipped_keys)) + " (budget,strategy) cells already covered, skipped"
+        )
+
+        covered_keys |= file_keys
+
+    print("[loaded] " + method + ": " + str(len(merged_by_run)) + " total runs")
+    for line in per_file_counts:
+        print(line)
+
+    return merged_by_run, merged_meta
 
 
 def compute_di(tier_data, tier, reference_tier):
@@ -80,23 +142,29 @@ def run_tier(all_by_run, all_meta, target_tier, results_rows):
     Appends rows to results_rows (mutated in place) and returns tp/fp/tn/fn counts for this tier."""
 
     di_per_run = {}
-    print(f"\n{'='*70}")
-    print(f"TARGET TIER: {target_tier}  (reference tier: {REFERENCE_TIER})")
-    print(f"{'='*70}")
-    print(f"{'run_id':<40}{'strategy':<10}{'di_before':>10}{'di_after':>10}{'di_shift':>10}")
+    print("")
+    print("=" * 70)
+    print("TARGET TIER: " + target_tier + "  (reference tier: " + REFERENCE_TIER + ")")
+    print("=" * 70)
+    header = "{:<40}{:<10}{:>10}{:>10}{:>10}".format("run_id", "strategy", "di_before", "di_after", "di_shift")
+    print(header)
 
     for run_id, tier_data in all_by_run.items():
         try:
             di_before, di_after, di_shift = compute_di(tier_data, target_tier, REFERENCE_TIER)
         except KeyError:
-            print(f"[warn] {run_id} missing tier data for '{target_tier}', skipping")
+            print("[warn] " + run_id + " missing tier data for '" + target_tier + "', skipping")
             continue
         di_per_run[run_id] = {"di_before": di_before, "di_after": di_after, "di_shift": di_shift, **all_meta[run_id]}
-        print(f"{run_id:<40}{all_meta[run_id]['strategy']:<10}{di_before:>10.3f}{di_after:>10.3f}{di_shift:>10.3f}")
+        line = "{:<40}{:<10}{:>10.3f}{:>10.3f}{:>10.3f}".format(
+            run_id, all_meta[run_id]["strategy"], di_before, di_after, di_shift
+        )
+        print(line)
 
     benign_runs = [r for r, v in di_per_run.items() if v["strategy"] == "random"]
     attack_runs = [r for r, v in di_per_run.items() if v["strategy"] == "influence"]
-    print(f"\nBenign (random) runs: {len(benign_runs)}   Attack (influence) runs: {len(attack_runs)}")
+    print("")
+    print("Benign (random) runs: " + str(len(benign_runs)) + "   Attack (influence) runs: " + str(len(attack_runs)))
 
     methods = sorted(set(v["method"] for v in di_per_run.values()))
     tp = fp = tn = fn = 0
@@ -136,14 +204,10 @@ def run_tier(all_by_run, all_meta, target_tier, results_rows):
 
 def main():
     all_by_run, all_meta = {}, {}
-    for method, path in RESULT_FILES.items():
-        if not os.path.exists(path):
-            print(f"[skip] {path} not found yet")
-            continue
-        by_run, meta = load_results(path, method)
+    for method, file_list in RESULT_FILES.items():
+        by_run, meta = load_results_for_method(method, file_list)
         all_by_run.update(by_run)
         all_meta.update(meta)
-        print(f"[loaded] {method}: {len(by_run)} runs from {path}")
 
     results_rows = []
     tier_totals = {}
@@ -160,17 +224,25 @@ def main():
         for r in results_rows:
             writer.writerow({k: r[k] for k in fieldnames})
 
-    print(f"\n{'='*70}")
+    print("")
+    print("=" * 70)
     print("PER-TIER SUMMARY")
-    print(f"{'='*70}")
-    print(f"{'tier':<18}{'TP':>5}{'FP':>5}{'TN':>5}{'FN':>5}{'Precision':>12}{'Recall':>10}{'F1':>8}")
+    print("=" * 70)
+    header = "{:<18}{:>5}{:>5}{:>5}{:>5}{:>12}{:>10}{:>8}".format(
+        "tier", "TP", "FP", "TN", "FN", "Precision", "Recall", "F1"
+    )
+    print(header)
     for tier, (tp, fp, tn, fn) in tier_totals.items():
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-        print(f"{tier:<18}{tp:>5}{fp:>5}{tn:>5}{fn:>5}{precision:>12.3f}{recall:>10.3f}{f1:>8.3f}")
+        line = "{:<18}{:>5}{:>5}{:>5}{:>5}{:>12.3f}{:>10.3f}{:>8.3f}".format(
+            tier, tp, fp, tn, fn, precision, recall, f1
+        )
+        print(line)
 
-    print(f"\nSaved to {OUTPUT_CSV}")
+    print("")
+    print("Saved to " + OUTPUT_CSV)
 
 
 if __name__ == "__main__":
