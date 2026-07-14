@@ -2,23 +2,24 @@
 experiments/test_auditor_multimethod.py
 
 Day 8/12/13 combined: tests the capability-aware auditor (audit/capability_monitor.py)
-across MULTIPLE unlearning methods (gradient ascent + fine-tuning now, Fisher
-forgetting to be added once results/fisher_results.csv exists).
+across MULTIPLE unlearning methods (gradient ascent, fine-tuning, and Fisher forgetting),
+across ALL FOUR capability tiers (majority, mid_tail, long_tail, safety_critical).
 
 WHY THIS MATTERS FOR THE PAPER (lit review, Contribution 4):
 "Evaluate the tradeoff between target-capability degradation and aggregate
 utility preservation" is a claim about unlearning generally, not just one
-method. If the auditor only works on gradient ascent, that's a much weaker
-result than if it holds across gradient ascent AND fine-tuning (and Fisher
-tomorrow). This script also fixes the "only 3 benign + 3 attack samples"
-limitation flagged earlier -- combining methods roughly doubles the sample
-size for precision/recall/F1.
+method or one tier. Checking only long_tail would have systematically missed
+Fisher's real damage pattern (Fisher hits mid_tail hardest, not long_tail --
+confirmed via check_results.py on the corrected CSVs). All four tiers are
+run per method so the auditor's behavior on each is visible, including
+majority, which acts as an internal sanity check (majority vs. itself as
+reference tier is trivially ~1.0 DI and should never flag).
 
-Handles two different CSV schemas automatically:
+Handles three different CSV schemas automatically:
   - gradient_ascent_results.csv: has an "unlearned_acc" column
   - finetune_results_multidraw_steps50_corrected.csv: has "unlearned_acc_mean"
-    instead (already averaged over 5 random re-draws per forget set -- no
-    row-collision risk, one row per forget_set+tier just like gradient ascent)
+  - fisher_results_multidraw_extended_alpha0.001_corrected.csv: also has
+    "unlearned_acc_mean" (already averaged over draws per forget set)
 """
 
 import sys, os
@@ -31,16 +32,16 @@ from audit.capability_monitor import CapabilityMonitor
 RESULT_FILES = {
     "gradient_ascent": "results/gradient_ascent_results.csv",
     "finetune": "results/finetune_results_multidraw_steps50_corrected.csv",
-    # "fisher": "results/fisher_results.csv",  # add once Day 7 is done
+    "fisher": "results/fisher_results_multidraw_extended_alpha0.001_corrected.csv",
 }
 
-TARGET_TIER = "long_tail"       # matches your forget sets -- long_tail-only, per your earlier fix
-REFERENCE_TIER = "majority"
+TARGET_TIERS = ["majority", "mid_tail", "long_tail", "safety_critical"]
+REFERENCE_TIER = "majority"  # NOTE: majority-vs-majority is a degenerate/sanity-check case (DI ~= 1.0 always)
 OUTPUT_CSV = "results/auditor_test_results_multimethod.csv"
 
 
 def get_unlearned_acc(row):
-    """Handles both column naming schemes across your two CSVs."""
+    """Handles all three column naming schemes across your CSVs."""
     if "unlearned_acc" in row:
         return float(row["unlearned_acc"])
     if "unlearned_acc_mean" in row:
@@ -49,7 +50,7 @@ def get_unlearned_acc(row):
 
 
 def load_results(path, method):
-    """One row per forget_set+tier in both your files -- no draw/seed collision to worry about."""
+    """One row per forget_set+tier in all three files -- no draw/seed collision to worry about."""
     by_run = defaultdict(dict)
     meta = {}
     with open(path) as f:
@@ -74,6 +75,65 @@ def compute_di(tier_data, tier, reference_tier):
     return di_before, di_after, di_after - di_before
 
 
+def run_tier(all_by_run, all_meta, target_tier, results_rows):
+    """Runs the full benign/attack auditor test for one target tier, across all methods.
+    Appends rows to results_rows (mutated in place) and returns tp/fp/tn/fn counts for this tier."""
+
+    di_per_run = {}
+    print(f"\n{'='*70}")
+    print(f"TARGET TIER: {target_tier}  (reference tier: {REFERENCE_TIER})")
+    print(f"{'='*70}")
+    print(f"{'run_id':<40}{'strategy':<10}{'di_before':>10}{'di_after':>10}{'di_shift':>10}")
+
+    for run_id, tier_data in all_by_run.items():
+        try:
+            di_before, di_after, di_shift = compute_di(tier_data, target_tier, REFERENCE_TIER)
+        except KeyError:
+            print(f"[warn] {run_id} missing tier data for '{target_tier}', skipping")
+            continue
+        di_per_run[run_id] = {"di_before": di_before, "di_after": di_after, "di_shift": di_shift, **all_meta[run_id]}
+        print(f"{run_id:<40}{all_meta[run_id]['strategy']:<10}{di_before:>10.3f}{di_after:>10.3f}{di_shift:>10.3f}")
+
+    benign_runs = [r for r, v in di_per_run.items() if v["strategy"] == "random"]
+    attack_runs = [r for r, v in di_per_run.items() if v["strategy"] == "influence"]
+    print(f"\nBenign (random) runs: {len(benign_runs)}   Attack (influence) runs: {len(attack_runs)}")
+
+    methods = sorted(set(v["method"] for v in di_per_run.values()))
+    tp = fp = tn = fn = 0
+
+    for method in methods:
+        method_benign = [r for r in benign_runs if di_per_run[r]["method"] == method]
+        method_attack = [r for r in attack_runs if di_per_run[r]["method"] == method]
+
+        # Calibrate "normal" separately per method -- different methods erode
+        # at very different magnitudes, so pooling into one history washes
+        # out smaller-but-real signals.
+        for held_out in method_benign:
+            monitor = CapabilityMonitor(di_threshold=0.0, zscore_threshold=1.0, min_history_for_zscore=2)
+            other_shifts = [di_per_run[r]["di_shift"] for r in method_benign if r != held_out]
+            monitor.seed_benign_history(other_shifts, tier=target_tier)
+
+            v = di_per_run[held_out]
+            result = monitor.check(v["di_after"], v["di_shift"], tier=target_tier)
+            result.update({"run_id": held_out, "true_label": "benign", "method": method})
+            results_rows.append(result)
+            fp += result["flagged"]
+            tn += not result["flagged"]
+
+        monitor = CapabilityMonitor(di_threshold=0.0, zscore_threshold=1.0, min_history_for_zscore=2)
+        monitor.seed_benign_history([di_per_run[r]["di_shift"] for r in method_benign], tier=target_tier)
+
+        for r in method_attack:
+            v = di_per_run[r]
+            result = monitor.check(v["di_after"], v["di_shift"], tier=target_tier)
+            result.update({"run_id": r, "true_label": "attack", "method": method})
+            results_rows.append(result)
+            tp += result["flagged"]
+            fn += not result["flagged"]
+
+    return tp, fp, tn, fn
+
+
 def main():
     all_by_run, all_meta = {}, {}
     for method, path in RESULT_FILES.items():
@@ -85,54 +145,12 @@ def main():
         all_meta.update(meta)
         print(f"[loaded] {method}: {len(by_run)} runs from {path}")
 
-    di_per_run = {}
-    print(f"\n{'run_id':<40}{'strategy':<10}{'di_before':>10}{'di_after':>10}{'di_shift':>10}")
-    for run_id, tier_data in all_by_run.items():
-        try:
-            di_before, di_after, di_shift = compute_di(tier_data, TARGET_TIER, REFERENCE_TIER)
-        except KeyError:
-            print(f"[warn] {run_id} missing tier data, skipping")
-            continue
-        di_per_run[run_id] = {"di_before": di_before, "di_after": di_after, "di_shift": di_shift, **all_meta[run_id]}
-        print(f"{run_id:<40}{all_meta[run_id]['strategy']:<10}{di_before:>10.3f}{di_after:>10.3f}{di_shift:>10.3f}")
-
-    benign_runs = [r for r, v in di_per_run.items() if v["strategy"] == "random"]
-    attack_runs = [r for r, v in di_per_run.items() if v["strategy"] == "influence"]
-    print(f"\nBenign (random) runs: {len(benign_runs)}   Attack (influence) runs: {len(attack_runs)}")
-
-    methods = sorted(set(v["method"] for v in di_per_run.values()))
     results_rows = []
-    tp = fp = tn = fn = 0
+    tier_totals = {}
 
-    for method in methods:
-        method_benign = [r for r in benign_runs if di_per_run[r]["method"] == method]
-        method_attack = [r for r in attack_runs if di_per_run[r]["method"] == method]
-
-        # Calibrate "normal" separately per method -- gradient ascent and
-        # fine-tuning erode at very different magnitudes, so pooling them
-        # into one history washes out the smaller (but real) fine-tune signal.
-        for held_out in method_benign:
-            monitor = CapabilityMonitor(di_threshold=0.0, zscore_threshold=1.0, min_history_for_zscore=2)
-            other_shifts = [di_per_run[r]["di_shift"] for r in method_benign if r != held_out]
-            monitor.seed_benign_history(other_shifts, tier=TARGET_TIER)
-
-            v = di_per_run[held_out]
-            result = monitor.check(v["di_after"], v["di_shift"], tier=TARGET_TIER)
-            result.update({"run_id": held_out, "true_label": "benign", "method": method})
-            results_rows.append(result)
-            fp += result["flagged"]
-            tn += not result["flagged"]
-
-        monitor = CapabilityMonitor(di_threshold=0.0, zscore_threshold=1.0, min_history_for_zscore=2)
-        monitor.seed_benign_history([di_per_run[r]["di_shift"] for r in method_benign], tier=TARGET_TIER)
-
-        for r in method_attack:
-            v = di_per_run[r]
-            result = monitor.check(v["di_after"], v["di_shift"], tier=TARGET_TIER)
-            result.update({"run_id": r, "true_label": "attack", "method": method})
-            results_rows.append(result)
-            tp += result["flagged"]
-            fn += not result["flagged"]
+    for target_tier in TARGET_TIERS:
+        tp, fp, tn, fn = run_tier(all_by_run, all_meta, target_tier, results_rows)
+        tier_totals[target_tier] = (tp, fp, tn, fn)
 
     os.makedirs("results", exist_ok=True)
     with open(OUTPUT_CSV, "w", newline="") as f:
@@ -142,14 +160,17 @@ def main():
         for r in results_rows:
             writer.writerow({k: r[k] for k in fieldnames})
 
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    print(f"\n{'='*70}")
+    print("PER-TIER SUMMARY")
+    print(f"{'='*70}")
+    print(f"{'tier':<18}{'TP':>5}{'FP':>5}{'TN':>5}{'FN':>5}{'Precision':>12}{'Recall':>10}{'F1':>8}")
+    for tier, (tp, fp, tn, fn) in tier_totals.items():
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        print(f"{tier:<18}{tp:>5}{fp:>5}{tn:>5}{fn:>5}{precision:>12.3f}{recall:>10.3f}{f1:>8.3f}")
 
-    print(f"\n{'='*50}")
-    print(f"TP={tp} FP={fp} TN={tn} FN={fn}")
-    print(f"Precision: {precision:.3f}  Recall: {recall:.3f}  F1: {f1:.3f}")
-    print(f"Saved to {OUTPUT_CSV}")
+    print(f"\nSaved to {OUTPUT_CSV}")
 
 
 if __name__ == "__main__":
