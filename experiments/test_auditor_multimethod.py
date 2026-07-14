@@ -32,11 +32,7 @@ from audit.capability_monitor import CapabilityMonitor
 RESULT_FILES = {
     "gradient_ascent": "results/gradient_ascent_results.csv",
     "finetune": "results/finetune_results_multidraw_steps50_corrected.csv",
-<<<<<<< HEAD
-    "fisher": "results/fisher_results_multidraw_extended_alpha0.001_corrected.csv",  
-=======
     "fisher": "results/fisher_results_multidraw_extended_alpha0.001_corrected.csv",
->>>>>>> 1bb6ca4dbd92115df6fa40f4e7536c45e4b1994c
 }
 
 TARGET_TIERS = ["majority", "mid_tail", "long_tail", "safety_critical"]
