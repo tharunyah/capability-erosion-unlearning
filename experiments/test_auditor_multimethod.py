@@ -31,7 +31,7 @@ from audit.capability_monitor import CapabilityMonitor
 RESULT_FILES = {
     "gradient_ascent": "results/gradient_ascent_results.csv",
     "finetune": "results/finetune_results_multidraw_steps50_corrected.csv",
-    # "fisher": "results/fisher_results.csv",  # add once Day 7 is done
+    "fisher": "results/fisher_results_multidraw_extended_alpha0.001_corrected.csv",  
 }
 
 TARGET_TIER = "long_tail"       # matches your forget sets -- long_tail-only, per your earlier fix
